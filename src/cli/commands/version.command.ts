@@ -10,36 +10,26 @@ type PackageJSONConfig = {
 function isPackageJSONConfig(value: unknown): value is PackageJSONConfig {
   return (
     typeof value === 'object' &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Object.hasOwn(value, 'version')
+      value !== null &&
+      !Array.isArray(value) &&
+      Object.hasOwn(value, 'version')
   );
 }
 
 export class VersionCommand implements Command {
   constructor(
-    private readonly filePath: string = './package.json'
+      private readonly filePath: string = './package.json'
   ) {}
 
   private readVersion(): string {
-    try {
-      const jsonContent = readFileSync(resolve(this.filePath), 'utf-8');
-      const importedContent: unknown = JSON.parse(jsonContent);
+    const jsonContent = readFileSync(resolve(this.filePath), 'utf-8');
+    const importedContent: unknown = JSON.parse(jsonContent);
 
-      if (!isPackageJSONConfig(importedContent)) {
-        throw new Error('Failed to parse json content');
-      }
-
-      return importedContent.version;
-    } catch(error) {
-      if (!(error instanceof Error)) {
-        throw error;
-      }
-
-      console.error(`Can't read version from file: ${this.filePath}`);
-      console.error(`Details: ${error.message}`);
-      throw error;
+    if (! isPackageJSONConfig(importedContent)) {
+      throw new Error('Failed to parse json content.');
     }
+
+    return importedContent.version;
   }
 
   public getName(): string {
