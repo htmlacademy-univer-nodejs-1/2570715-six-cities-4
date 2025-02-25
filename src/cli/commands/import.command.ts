@@ -13,14 +13,14 @@ export class ImportCommand implements Command {
     try {
       fileReader.read();
       console.log(fileReader.toArray());
-    } catch (err) {
+    } catch (error) {
 
-      if (!(err instanceof Error)) {
-        throw err;
+      if (!(error instanceof Error)) {
+        throw error;
       }
 
       console.error(`Can't import data from file: ${filename}`);
-      console.error(`Details: ${err.message}`);
+      console.error(`Details: ${error.message}`);
     }
   }
 }
