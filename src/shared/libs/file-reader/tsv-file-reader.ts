@@ -1,43 +1,37 @@
 import { FileReader } from './file-reader.interface.js';
-import { readFileSync } from 'node:fs';
-import { Offer, OfferType } from '../../types/index.js';
+import { createReadStream } from 'node:fs';
+import { EventEmitter } from 'node:events';
 
-export class TSVFileReader implements FileReader {
-  private rawData = '';
+const CHUNK_SIZE = 16384;
 
+export class TsvFileReader extends EventEmitter implements FileReader {
   constructor(
     private readonly filename: string
-  ) {}
-
-  public read(): void {
-    this.rawData = readFileSync(this.filename, { encoding: 'utf-8' });
+  ) {
+    super();
   }
 
-  public toArray(): Offer[] {
-    if (!this.rawData) {
-      throw new Error('File was not read');
+  public async read(): Promise<void> {
+    const stream = createReadStream(this.filename, {
+      highWaterMark: CHUNK_SIZE,
+      encoding: 'utf-8'
+    });
+
+    let remainingData = '';
+    let nextLinePosition = -1;
+    let importedRowCount = 0;
+
+    for await (const chunk of stream) {
+      remainingData += chunk.toString();
+
+      while ((nextLinePosition = remainingData.indexOf('\n')) >= 0) {
+        const completeRow = remainingData.slice(0, nextLinePosition);
+        remainingData = remainingData.slice(++nextLinePosition);
+        importedRowCount++;
+        this.emit('readline', completeRow);
+      }
     }
 
-    return this.rawData
-      .split('\n')
-      .filter((row) => row.trim().length > 0)
-      .map((line) => line.split('\t'))
-      .map(([title, description, createdDate, cityName, previewUrl, images, isPremium, isFavorite, rating, type, bedrooms, maxAdults, price, goods, hostName, hostEmail]) => ({
-        title,
-        description,
-        postDate: new Date(createdDate),
-        city: { name: cityName },
-        previewUrl,
-        images: images.split(';'),
-        isPremium: JSON.parse(isPremium),
-        isFavorite: JSON.parse(isFavorite),
-        rating: Number(rating),
-        type: OfferType[type as 'Apartment' | 'House' | 'Room' | 'Hotel'],
-        bedrooms: Number.parseInt(bedrooms, 10),
-        maxAdults: Number.parseInt(maxAdults, 10),
-        price: Number(price),
-        goods: goods.split(';'),
-        host: { name: hostName, email: hostEmail },
-      }));
+    this.emit('end', importedRowCount);
   }
 }
