@@ -1,0 +1,5 @@
+## Load avatar
+POST http://example.com/users/50me-1d/avatar
+Content-Type: multipart/form-data
+
+avatar=@zv.png
