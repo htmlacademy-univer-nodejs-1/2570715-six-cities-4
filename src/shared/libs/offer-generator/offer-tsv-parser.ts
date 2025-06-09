@@ -1,3 +1,4 @@
+import { generateRandomValue } from '../../helpers/index.js';
 import { Offer, HousingType, ConvenienceType, City, UserType } from '../../models/index.js';
 
 export class OfferTsvParser {
@@ -11,12 +12,13 @@ export class OfferTsvParser {
     }
 
     const splitString = trimString.split('\t');
-    const [name, description, createdAt, city, previewUrl, imageUrls, isPremium, isFavourite, rating, housingType, roomsNumber, guestsNumber, cost, conveniences, author, authorEmail, latitude, longitude] = splitString;
+    const [id, name, description, createdAt, city, previewUrl, imageUrls, isPremium, isFavourite, rating, housingType, roomsNumber, guestsNumber, cost, conveniences, author, latitude, longitude] = splitString;
 
     return {
+      id: id,
       name,
       description,
-      internalCreatedAt: new Date(createdAt),
+      createdAt: new Date(createdAt),
       city: city as City,
       previewUrl,
       imagesUrls: imageUrls.split(';'),
@@ -31,10 +33,11 @@ export class OfferTsvParser {
         .split(';')
         .map((convenience) => convenience as ConvenienceType),
       author: {
-        email: authorEmail,
+        id: `${generateRandomValue(0, 100000)}`,
         name: author,
+        email: `${author}${generateRandomValue(0, 100000)}@fakemail.ru`,
         type: UserType.Basic,
-        avatarUrl: `http://localhost:1111/${author}`
+        avatar: `https://six-cities.ru/images/${generateRandomValue(0, 100000)}/user`
       },
       latitude: Number(latitude),
       longitude: Number(longitude),
@@ -44,10 +47,10 @@ export class OfferTsvParser {
 
   toString(offer: Offer): string {
     return [
-      offer.name, offer.description, offer.internalCreatedAt, offer.city,
+      offer.id, offer.name, offer.description, offer.createdAt, offer.city,
       offer.previewUrl, offer.imagesUrls.join(';'), offer.isPremium, offer.isFavourite,
       offer.rating, offer.housingType, offer.roomsNumber, offer.guestsNumber,
-      offer.cost, offer.conveniences.join(';'), offer.author.name, offer.author.email,
+      offer.cost, offer.conveniences.join(';'), offer.author.name,
       offer.latitude, offer.longitude
     ].join('\t');
   }

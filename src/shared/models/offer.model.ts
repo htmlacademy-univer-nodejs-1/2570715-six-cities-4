@@ -4,9 +4,10 @@ import { City } from './cities.enum.js';
 import { User } from './user.model.js';
 
 export type Offer = {
+  id: string,
   name: string;
   description: string;
-  internalCreatedAt: Date;
+  createdAt: Date;
   city: City;
   previewUrl: string;
   imagesUrls: string[];

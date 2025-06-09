@@ -4,15 +4,17 @@ import { getErrorMessage } from '../../shared/helpers/common.js';
 import { TsvFileReader } from '../../shared/libs/file-reader/index.js';
 import { Logger, ConsoleLogger } from '../../shared/libs/logger/index.js';
 import { OfferModel, OfferService, DefaultOfferService } from '../../shared/modules/offer/index.js';
-import { UserModel, UserService, DefaultUserService } from '../../shared/modules/user/index.js';
 import { DatabaseClient, MongoDatabaseClient } from '../../shared/libs/database-client/index.js';
 import { Offer } from '../../shared/models/index.js';
-import { DEFAULT_USER_PASSWORD } from './command.constants.js';
+import { CommentModel } from '../../shared/modules/comment/comment.entity.js';
+import { UserService } from '../../shared/modules/user/user-service.interface.js';
+import { DefaultUserService } from '../../shared/modules/user/default.user-service.js';
+import { UserModel } from '../../shared/modules/user/user.entity.js';
 
 export class ImportCommand implements Command {
   private readonly parser: OfferTsvParser = new OfferTsvParser();
-  private readonly userService: UserService;
   private readonly offerService: OfferService;
+  private readonly userService: UserService;
   private readonly databaseClient: DatabaseClient;
   private readonly logger: Logger;
   private salt: string;
@@ -20,9 +22,10 @@ export class ImportCommand implements Command {
   constructor() {
     this.onImportedLine = this.onImportedLine.bind(this);
     this.onCompleteImport = this.onCompleteImport.bind(this);
+    this.saveOffer = this.saveOffer.bind(this);
 
     this.logger = new ConsoleLogger();
-    this.offerService = new DefaultOfferService(this.logger, OfferModel);
+    this.offerService = new DefaultOfferService(this.logger, OfferModel, CommentModel);
     this.userService = new DefaultUserService(this.logger, UserModel);
     this.databaseClient = new MongoDatabaseClient(this.logger);
   }
@@ -60,9 +63,11 @@ export class ImportCommand implements Command {
   }
 
   private async saveOffer(offer: Offer) {
-    const user = await this.userService.findOrCreate({
-      ...offer.author,
-      password: DEFAULT_USER_PASSWORD
+    const result = await this.userService.create({
+      email: offer.author.email,
+      password: '1234567890',
+      type: offer.author.type,
+      name: offer.author.name
     }, this.salt);
 
     await this.offerService.create({
@@ -77,9 +82,8 @@ export class ImportCommand implements Command {
       guestsNumber: offer.guestsNumber,
       cost: offer.cost,
       conveniences: offer.conveniences,
-      authorId: user.id,
       latitude: offer.latitude,
       longitude: offer.longitude
-    });
+    }, result.id);
   }
 }
