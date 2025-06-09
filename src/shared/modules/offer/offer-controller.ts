@@ -8,7 +8,7 @@ import { OfferService } from './offer-service.interface.js';
 import { plainToClass } from 'class-transformer';
 import { CreateOfferDto } from './dto/create-offer.dto.js';
 import { PutOfferDto } from './dto/put-offer.dto.js';
-import { isValidObjectId, Types } from 'mongoose';
+import { Types } from 'mongoose';
 import { HttpError } from '../../libs/exception-filter/http-error.js';
 import { StatusCodes } from 'http-status-codes';
 import { ObjectIdValidatorMiddleware } from '../../libs/rest/object-id-validator.middleware.js';
@@ -18,12 +18,15 @@ import { putOfferDtoSchema } from './dto-schemas/put-offer-dto.schema.js';
 import { AuthorizeMiddleware } from '../../libs/rest/authorize.middlewate.js';
 import { ApplicationSchema } from '../../libs/config/application.schema.js';
 import { Config } from '../../libs/config/config.interface.js';
+import { toFullModel } from './conventers.js';
+import { UserService } from '../user/user-service.interface.js';
 
 @injectable()
 export class OfferController extends ControllerBase {
   constructor(
     @inject(Component.Logger) logger: Logger,
     @inject(Component.OfferService) private offerService: OfferService,
+    @inject(Component.UserService) private userService: UserService,
     @inject(Component.Config) private readonly config: Config<ApplicationSchema>
   ) {
     super(logger);
@@ -31,7 +34,10 @@ export class OfferController extends ControllerBase {
     this.addRoute({
       path: '/premium/:city',
       httpMethod: HttpMethod.Get,
-      handleAsync: this.indexPremiumForCity.bind(this)
+      handleAsync: this.indexPremiumForCity.bind(this),
+      middlewares: [
+        new AuthorizeMiddleware(this.config.get('JWT_SECRET'), true)
+      ]
     });
 
     this.addRoute({
@@ -39,7 +45,7 @@ export class OfferController extends ControllerBase {
       httpMethod: HttpMethod.Get,
       handleAsync: this.indexFavouriteForUser.bind(this),
       middlewares: [
-        new AuthorizeMiddleware(this.config.get('JWT_SECRET'))
+        new AuthorizeMiddleware(this.config.get('JWT_SECRET'), false)
       ]
     });
     this.addRoute({
@@ -48,7 +54,7 @@ export class OfferController extends ControllerBase {
       handleAsync: this.addToFavourite.bind(this),
       middlewares: [
         new ObjectIdValidatorMiddleware(this.offerService, 'id'),
-        new AuthorizeMiddleware(this.config.get('JWT_SECRET'))
+        new AuthorizeMiddleware(this.config.get('JWT_SECRET'), false)
       ]
     });
     this.addRoute({
@@ -57,14 +63,17 @@ export class OfferController extends ControllerBase {
       handleAsync: this.removeFromFavourite.bind(this),
       middlewares: [
         new ObjectIdValidatorMiddleware(this.offerService, 'id'),
-        new AuthorizeMiddleware(this.config.get('JWT_SECRET'))
+        new AuthorizeMiddleware(this.config.get('JWT_SECRET'), false)
       ]
     });
 
     this.addRoute({
       path: '/',
       httpMethod: HttpMethod.Get,
-      handleAsync: this.index.bind(this)
+      handleAsync: this.index.bind(this),
+      middlewares: [
+        new AuthorizeMiddleware(this.config.get('JWT_SECRET'), true)
+      ]
     });
     this.addRoute({
       path: '/',
@@ -72,7 +81,7 @@ export class OfferController extends ControllerBase {
       handleAsync: this.create.bind(this),
       middlewares: [
         new SchemaValidatorMiddleware(createOfferDtoSchema),
-        new AuthorizeMiddleware(this.config.get('JWT_SECRET'))
+        new AuthorizeMiddleware(this.config.get('JWT_SECRET'), false)
       ]
     });
     this.addRoute({
@@ -80,6 +89,7 @@ export class OfferController extends ControllerBase {
       httpMethod: HttpMethod.Get,
       handleAsync: this.showById.bind(this),
       middlewares: [
+        new AuthorizeMiddleware(this.config.get('JWT_SECRET'), true),
         new ObjectIdValidatorMiddleware(this.offerService, 'id')
       ]
     });
@@ -88,9 +98,9 @@ export class OfferController extends ControllerBase {
       httpMethod: HttpMethod.Put,
       handleAsync: this.updateById.bind(this),
       middlewares: [
+        new AuthorizeMiddleware(this.config.get('JWT_SECRET'), false),
         new SchemaValidatorMiddleware(putOfferDtoSchema),
-        new ObjectIdValidatorMiddleware(this.offerService, 'id'),
-        new AuthorizeMiddleware(this.config.get('JWT_SECRET'))
+        new ObjectIdValidatorMiddleware(this.offerService, 'id')
       ]
     });
     this.addRoute({
@@ -99,15 +109,16 @@ export class OfferController extends ControllerBase {
       handleAsync: this.deleteById.bind(this),
       middlewares: [
         new ObjectIdValidatorMiddleware(this.offerService, 'id'),
-        new AuthorizeMiddleware(this.config.get('JWT_SECRET'))
+        new AuthorizeMiddleware(this.config.get('JWT_SECRET'), false)
       ]
     });
   }
 
   private async index(req: Request, res: Response): Promise<void> {
     const { limit, skip } = req.query;
+    const { userId } = res.locals;
 
-    const defaultLimit = 20;
+    const defaultLimit = 60;
     const limitValue = limit ? parseInt(limit as string, 10) : defaultLimit;
 
     if (isNaN(limitValue)) {
@@ -122,35 +133,44 @@ export class OfferController extends ControllerBase {
     }
 
     const offers = await this.offerService.findAll(limitValue, skipValue);
-    this.ok(res, offers);
+    const mappedResult = [];
+
+    for (const offer of offers) {
+      const author = await this.userService.findById(new Types.ObjectId(offer.authorId.toString()));
+      mappedResult.push(toFullModel(offer, userId, author!, this.config.get('HOST')));
+    }
+
+    this.ok(res, mappedResult);
   }
 
   private async create(req: Request, res: Response): Promise<void> {
     const { userId } = res.locals;
 
     const dto = plainToClass(CreateOfferDto, req.body);
-    dto.authorId = userId;
-    const offer = await this.offerService.create(dto);
-    this.created(res, offer);
+    const offer = await this.offerService.create(dto, userId);
+    const user = await this.userService.findById(new Types.ObjectId(String(userId)));
+
+    this.created(res, toFullModel(offer, userId, user!, this.config.get('HOST')));
   }
 
   private async showById(req: Request, res: Response): Promise<void> {
     const { id } = req.params;
-
-    if (!isValidObjectId(id)) {
-      this.sendBadRequest('id', id);
-    }
+    const { userId } = res.locals;
 
     const offer = await this.offerService.findById(new Types.ObjectId(id));
-    this.ok(res, offer);
+
+    if (offer === null) {
+      this.send(res, StatusCodes.NOT_FOUND, null);
+      return;
+    }
+
+    const author = await this.userService.findById(new Types.ObjectId(offer.authorId.toString()));
+
+    this.ok(res, toFullModel(offer, userId, author!, this.config.get('HOST')));
   }
 
   private async updateById(req: Request, res: Response): Promise<void> {
     const { id } = req.params;
-
-    if (!isValidObjectId(id)) {
-      this.sendBadRequest('id', id);
-    }
 
     const { userId } = res.locals;
     const offerId = new Types.ObjectId(id);
@@ -161,17 +181,20 @@ export class OfferController extends ControllerBase {
     }
 
     const dto = plainToClass(PutOfferDto, req.body);
-    dto.id = new Types.ObjectId(id);
-    const offer = await this.offerService.change(dto);
-    this.ok(res, offer);
+    const offer = await this.offerService.change(new Types.ObjectId(id), dto);
+
+    if (offer === null) {
+      this.send(res, StatusCodes.NOT_FOUND, null);
+      return;
+    }
+
+    const user = await this.userService.findById(new Types.ObjectId(String(userId)));
+
+    this.ok(res, toFullModel(offer, userId, user!, this.config.get('HOST')));
   }
 
   private async deleteById(req: Request, res: Response): Promise<void> {
     const { id } = req.params;
-
-    if (!isValidObjectId(id)) {
-      this.sendBadRequest('id', id);
-    }
 
     const { userId } = res.locals;
     const offerId = new Types.ObjectId(id);
@@ -187,6 +210,7 @@ export class OfferController extends ControllerBase {
 
   private async indexPremiumForCity(req: Request, res: Response): Promise<void> {
     const { city } = req.params;
+    const { userId } = res.locals;
 
     const cityValue = city as City;
     if (!cityValue) {
@@ -195,7 +219,7 @@ export class OfferController extends ControllerBase {
 
     const { limit, skip } = req.query;
 
-    const defaultLimit = 20;
+    const defaultLimit = 3;
     const limitValue = limit ? parseInt(limit as string, 10) : defaultLimit;
 
     if (isNaN(limitValue)) {
@@ -210,13 +234,20 @@ export class OfferController extends ControllerBase {
     }
 
     const offers = await this.offerService.findAllPremium(cityValue, limitValue, skipValue);
-    this.ok(res, offers);
+    const mappedResult = [];
+
+    for (const offer of offers) {
+      const author = await this.userService.findById(new Types.ObjectId(offer.authorId.toString()));
+      mappedResult.push(toFullModel(offer, userId, author!, this.config.get('HOST')));
+    }
+
+    this.ok(res, mappedResult);
   }
 
   private async indexFavouriteForUser(req: Request, res: Response): Promise<void> {
     const { limit, skip } = req.query;
 
-    const defaultLimit = 20;
+    const defaultLimit = 60;
     const limitValue = limit ? parseInt(limit as string, 10) : defaultLimit;
 
     if (isNaN(limitValue)) {
@@ -233,31 +264,30 @@ export class OfferController extends ControllerBase {
     const { userId } = res.locals;
 
     const offers = await this.offerService.findAllFavourite(userId, limitValue, skipValue);
-    this.ok(res, offers);
+    const mappedResult = [];
+
+    for (const offer of offers) {
+      const author = await this.userService.findById(new Types.ObjectId(offer.authorId.toString()));
+      mappedResult.push(toFullModel(offer, userId, author!, this.config.get('HOST')));
+    }
+
+    this.ok(res, mappedResult);
   }
 
   private async addToFavourite(req: Request, res: Response): Promise<void> {
     const { userId } = res.locals;
     const { id } = req.params;
 
-    if (!isValidObjectId(id)) {
-      this.sendBadRequest('id', id);
-    }
-
     await this.offerService.addToFavourite(new Types.ObjectId(id), userId);
-    this.ok(res, null);
+    this.noContent(res);
   }
 
   private async removeFromFavourite(req: Request, res: Response): Promise<void> {
     const { userId } = res.locals;
     const { id } = req.params;
 
-    if (!isValidObjectId(id)) {
-      this.sendBadRequest('id', id);
-    }
-
     await this.offerService.removeFromFavourite(new Types.ObjectId(id), userId);
-    this.ok(res, null);
+    this.noContent(res);
   }
 
   private sendBadRequest<T>(paramName: string, value: T): void {

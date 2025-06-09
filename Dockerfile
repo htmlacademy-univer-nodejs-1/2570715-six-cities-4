@@ -8,13 +8,12 @@ RUN apt-get update \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 
-COPY package.json /app
+COPY package.json .
 
-RUN npm install
+RUN npm i
 
 COPY . .
 
 RUN npm run build
 
 CMD ["node", "dist/main.rest.js"]
-
